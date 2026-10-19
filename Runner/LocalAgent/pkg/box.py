@@ -41,6 +41,37 @@ class LocalAgentBox:
         self.ctx = ctx
         self.api = api
         self.binding = None
+        self.file_ids = []
+
+    def install_tool(self, assembly):
+        from langbot_plugin.api.entities.builtin.resource.tool import LLMTool
+
+        description = "Export selected absolute sandbox file paths. Validates all files, accepts attachments, then cleans up selected files. Required for file delivery."
+        assembly.tools.append(
+            LLMTool(
+                name="export_box_files",
+                human_desc=description,
+                description=description,
+                parameters={
+                    "type": "object",
+                    "properties": {"paths": {"type": "array", "items": {"type": "string"}, "minItems": 1}},
+                    "required": ["paths"],
+                    "additionalProperties": False,
+                },
+                func=self.export_files,
+            )
+        )
+        assembly.tool_executor.allowed_tools.add("export_box_files")
+        assembly.tool_executor.local_tools["export_box_files"] = self.export_files
+
+    async def export_files(self, paths):
+        files = await self.ctx.export_box_files(paths)
+        ids = [item.id for item in files]
+        if self.ctx.delivery.automatic_reply:
+            self.file_ids = list(dict.fromkeys(self.file_ids + ids))
+        elif ids:
+            await self.ctx.reply_files(ids)
+        return {"status": "accepted", "items": [item.model_dump() for item in files]}
 
     def needed(self):
         tools = {t.tool_name for t in self.api.get_allowed_tools()}
@@ -69,17 +100,8 @@ class LocalAgentBox:
             self.ctx.input.contents = [c for c in self.ctx.input.contents if c.type not in {"file_url", "file_base64"}]
         self.ctx.input.contents.append(
             ContentElement.from_text(
-                f"Sandbox files for this run belong in {self.binding.outbox}/ when they should be delivered "
-                "to the user. Create this directory if needed. The runner exports this directory on successful completion."
+                f"Prefer storing generated artifacts in {self.binding.outbox}/; create it if needed. "
+                "To deliver files, explicitly call export_box_files with their absolute paths and confirm success before finishing. "
+                "Writing a file does not deliver it. Fix reported errors and retry the tool; no automatic export occurs."
             )
         )
-
-    async def finish(self):
-        if self.binding is None:
-            return []
-        files = await self.ctx.export_box_files()
-        ids = [item.id for item in files]
-        if ids and not self.ctx.delivery.automatic_reply:
-            await self.ctx.reply_files(ids)
-            return []
-        return ids

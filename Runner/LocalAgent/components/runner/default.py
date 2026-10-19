@@ -223,6 +223,8 @@ class DefaultRunner(Runner):
                 AgentRunAssembler(api, ctx).assemble(),
                 deadline=deadline,
             )
+            if box.binding is not None:
+                box.install_tool(assembly)
         except NoAuthorizedModelError:
             yield RunnerResult.run_failed(
                 ctx.run_id,
@@ -267,7 +269,7 @@ class DefaultRunner(Runner):
             async with aclosing(_iterate_with_run_controls(results, interrupt_checker, deadline)) as owned_stream:
                 async for result in owned_stream:
                     if box.binding is not None and getattr(result.type, "value", result.type) == "message.completed":
-                        result.data["file_ids"] = await interrupt_checker.wait_for(box.finish(), deadline=deadline)
+                        result.data["file_ids"] = box.file_ids
                     yield result
                     if _is_terminal_result(result):
                         return

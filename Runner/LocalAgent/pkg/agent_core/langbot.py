@@ -208,6 +208,7 @@ class LangBotToolExecutor:
         self.api = api
         self.allowed_tools = allowed_tools
         self.max_result_chars = max_result_chars
+        self.local_tools = {}
 
     def prepare(self, request: ToolCallRequest) -> PreparedToolCall:
         parameters: dict[str, typing.Any] = {}
@@ -243,6 +244,9 @@ class LangBotToolExecutor:
             return self.finalize(prepared, result=None, error=prepared.error)
 
         try:
+            if prepared.request.name in self.local_tools:
+                result = await self.local_tools[prepared.request.name](**prepared.parameters)
+                return self.finalize(prepared, result=result, error=None)
             result = await self.api.call_tool(
                 tool_name=prepared.request.name,
                 parameters=prepared.parameters,

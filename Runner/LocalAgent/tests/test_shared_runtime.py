@@ -369,6 +369,7 @@ async def test_scoped_box_binding_and_exports(sdk_runtime, denied_a, automatic_r
     @host.host.action(P.EXPORT_BOX_FILES)
     async def export(data):
         owner = host.record("box_export", data)
+        assert data["paths"] == [f"/out/{owner}/result.txt"]
         return ActionResponse.success(
             {"items": [{"id": f"file-{owner}", "name": "result.txt", "type": "File", "size": 1}]}
         )
@@ -386,6 +387,29 @@ async def test_scoped_box_binding_and_exports(sdk_runtime, denied_a, automatic_r
         assert data["file_ids"] == [f"file-{owner}"]
         return ActionResponse.success({"result": {"ok": True}})
 
+    original_model = host.model
+
+    async def export_model(data):
+        answer = await original_model(data)
+        if not any(m["role"] == "tool" for m in data["messages"]):
+            owner = host.owners[data["run_id"]]
+            return Message(
+                role="assistant",
+                content="",
+                tool_calls=[
+                    {
+                        "id": "export",
+                        "type": "function",
+                        "function": {
+                            "name": "export_box_files",
+                            "arguments": json.dumps({"paths": [f"/out/{owner}/result.txt"]}),
+                        },
+                    }
+                ],
+            )
+        return answer
+
+    host.model = export_model
     contexts = [context(o) for o in ("a", "b")]
     for ctx in contexts:
         ctx.delivery.automatic_reply = automatic_reply
