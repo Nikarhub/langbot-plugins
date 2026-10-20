@@ -3,8 +3,8 @@ import asyncio
 import pytest
 from langbot_plugin.api.entities.builtin.provider.message import Message
 
-from pkg.agent_core.loop import AgentLoop
 from pkg.agent_core.langbot import LangBotToolExecutor
+from pkg.agent_core.loop import AgentLoop
 from pkg.agent_core.types import AgentLoopEventType, ModelTurnEvent, ModelTurnResult, ToolCallRequest
 
 
