@@ -53,6 +53,8 @@ class LocalAgentBox:
         self._delivered = set()
         self._delivery_failure = None
         self._export_lock = asyncio.Lock()
+        self._prepare_lock = asyncio.Lock()
+        self._prepared = False
 
     def install_tool(self, assembly):
         from langbot_plugin.api.entities.builtin.resource.tool import LLMTool
@@ -82,6 +84,7 @@ class LocalAgentBox:
         async with self._export_lock:
             if self._delivery_failure is not None:
                 raise self._delivery_failure
+            await self.prepare()
             try:
                 files = await self.ctx.export_box_files(paths)
             except PermissionError as exc:
@@ -129,6 +132,21 @@ class LocalAgentBox:
         )
 
     async def prepare(self):
+        async with self._prepare_lock:
+            if self._prepared:
+                return
+            await self._prepare()
+            self._prepared = True
+
+    async def call_tool(self, tool_name, parameters):
+        if tool_name in SANDBOX_TOOLS:
+            await self.prepare()
+        result = await self.api.call_tool(tool_name=tool_name, parameters=parameters)
+        if tool_name in SANDBOX_TOOLS and isinstance(result, dict):
+            result = {**result, "sandbox_outbox": self.binding.outbox}
+        return result
+
+    async def _prepare(self):
         if "paths" not in signature(RunnerContext.export_box_files).parameters:
             raise RuntimeError(
                 "Explicit file export requires a matching Core and Plugin Runtime SDK; upgrade them together."

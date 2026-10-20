@@ -21,6 +21,7 @@ async def test_explicit_export_error_then_retry():
         reply_files=AsyncMock(),
     )
     box = LocalAgentBox(ctx, None)
+    box.prepare = AsyncMock()
     executor = LangBotToolExecutor(None, set())
     assembly = SimpleNamespace(tools=[], tool_executor=executor)
     box.install_tool(assembly)
@@ -53,6 +54,7 @@ async def test_parallel_exports_keep_handles_and_delivery_unique(automatic):
         reply_files=AsyncMock(),
     )
     box = LocalAgentBox(ctx, None)
+    box.prepare = AsyncMock()
     results = await asyncio.gather(box.export_files(["/out/a"]), box.export_files(["/out/a"]))
     assert all(r["status"] == "accepted" and r["items"][0]["warning"] == "cleanup failed" for r in results)
     assert box.file_ids == (["file"] if automatic else [])
@@ -71,6 +73,7 @@ async def test_platform_failure_is_fatal_and_cannot_reexport_or_redeliver(failur
         reply_files=AsyncMock(side_effect=failure),
     )
     box = LocalAgentBox(ctx, None)
+    box.prepare = AsyncMock()
     executor = LangBotToolExecutor(None, set())
     box.install_tool(SimpleNamespace(tools=[], tool_executor=executor))
     request = ToolCallRequest.from_raw(
@@ -95,6 +98,7 @@ async def test_invalid_host_response_is_not_a_generation_retry():
         )
     )
     box = LocalAgentBox(ctx, None)
+    box.prepare = AsyncMock()
     with pytest.raises(NonRetryableToolError, match="invalid attachment data"):
         await box.export_files(["/out/a"])
 
