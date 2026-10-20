@@ -44,8 +44,15 @@ async def test_close_after_first_tool_result_awaits_remaining_tasks(streaming):
                 self.closed = True
 
     api = API()
-    loop = AgentLoop(model_adapter=Model(), tool_executor=LangBotToolExecutor(api, {"fast", "slow"}),
-                     model_ids=["model"], messages=[], tools=[], streaming=streaming, max_tool_iterations=2)
+    loop = AgentLoop(
+        model_adapter=Model(),
+        tool_executor=LangBotToolExecutor(api, {"fast", "slow"}),
+        model_ids=["model"],
+        messages=[],
+        tools=[],
+        streaming=streaming,
+        max_tool_iterations=2,
+    )
     stream = loop.run()
     try:
         async with asyncio.timeout(2):
