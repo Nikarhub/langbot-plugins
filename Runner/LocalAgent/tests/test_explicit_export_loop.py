@@ -11,6 +11,8 @@ from langbot_plugin.api.entities.builtin.runner.box import BoxFile
 from components.runner.default import RunDeadline, RunInterruptChecker, _iterate_with_run_controls
 from pkg.agent_core import AgentLoop, AgentLoopEventType, LangBotModelAdapter, LangBotToolExecutor
 from pkg.box import LocalAgentBox
+from tests.test_box import context
+from tests.test_box_lazy import api as box_api
 from tests.test_runner import make_context
 
 
@@ -50,14 +52,12 @@ def setup_loop(streaming, *, budget=10, automatic=True):
     api = ScriptedAPI(
         [export_turn("first", "Draft."), export_turn("retry"), Message(role="assistant", content="Done.")]
     )
-    ctx = SimpleNamespace(
-        export_box_files=AsyncMock(
-            side_effect=[RuntimeError("file missing: /out/a"), [BoxFile(id="file", name="a", type="File", size=1)]]
-        ),
-        delivery=SimpleNamespace(automatic_reply=automatic),
-        reply_files=AsyncMock(),
+    ctx = context()
+    ctx.delivery.automatic_reply = automatic
+    ctx.export_box_files = AsyncMock(
+        side_effect=[RuntimeError("file missing: /out/a"), [BoxFile(id="file", name="a", type="File", size=1)]]
     )
-    box = LocalAgentBox(ctx, None)
+    box = LocalAgentBox(ctx, box_api())
     executor = LangBotToolExecutor(api, set())
     assembly = SimpleNamespace(tools=[], tool_executor=executor)
     box.install_tool(assembly)
@@ -86,6 +86,10 @@ async def test_export_retry_uses_paired_tool_messages_and_original_usage(streami
     assert "file missing" in api.histories[1][-1].content
     assert api.histories[2][-1].tool_call_id == "retry"
     assert box.file_ids == ["file"] and ctx.export_box_files.await_count == 2
+    box.api.get_box_status.assert_awaited_once()
+    box.api.acquire_box.assert_awaited_once_with("group_room")
+    ctx.bind_box.assert_awaited_once_with("box")
+    ctx.import_box_attachments.assert_not_awaited()
     if streaming:
         deltas = [e.chunk.content for e in events if e.type == AgentLoopEventType.MESSAGE_UPDATE]
         assert deltas[0] == "Draft." and deltas[-1] == "Draft.Done."
@@ -108,6 +112,9 @@ async def test_no_tool_call_means_no_implicit_export():
     events = [event async for event in loop.run()]
     assert events[-1].type == AgentLoopEventType.AGENT_END
     ctx.export_box_files.assert_not_called()
+    box.api.get_box_status.assert_not_awaited()
+    box.api.acquire_box.assert_not_awaited()
+    ctx.bind_box.assert_not_awaited()
     assert box.file_ids == []
 
 
