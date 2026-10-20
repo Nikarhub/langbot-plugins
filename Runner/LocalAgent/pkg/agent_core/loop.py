@@ -123,11 +123,11 @@ class AgentLoop:
         try:
             for completed in asyncio.as_completed(tasks):
                 yield await completed
-        except BaseException:
+        finally:
             for task in tasks:
-                task.cancel()
+                if not task.done():
+                    task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
-            raise
 
     async def _execute_tool_batch(
         self,
@@ -151,9 +151,10 @@ class AgentLoop:
         else:
             for prepared in prepared_calls:
                 yield AgentLoopEvent.tool_execution_start(prepared.request, prepared.parameters)
-            async for index, outcome in self._execute_prepared_tool_calls_parallel(prepared_calls):
-                outcomes_by_source_order[index] = outcome
-                yield AgentLoopEvent.tool_execution_end(outcome)
+            async with aclosing(self._execute_prepared_tool_calls_parallel(prepared_calls)) as owned_batch:
+                async for index, outcome in owned_batch:
+                    outcomes_by_source_order[index] = outcome
+                    yield AgentLoopEvent.tool_execution_end(outcome)
 
         tool_results: list[Message] = []
         for outcome in outcomes_by_source_order:
@@ -229,8 +230,9 @@ class AgentLoop:
 
                 tool_iterations += 1
                 try:
-                    async for event in self._execute_tool_batch(pending_tool_calls, last_model_turn):
-                        yield event
+                    async with aclosing(self._execute_tool_batch(pending_tool_calls, last_model_turn)) as owned_batch:
+                        async for event in owned_batch:
+                            yield event
                 except BaseException as e:
                     if isinstance(e, (asyncio.CancelledError, GeneratorExit)) or not isinstance(e, Exception):
                         raise
@@ -347,8 +349,9 @@ class AgentLoop:
 
                 tool_iterations += 1
                 try:
-                    async for event in self._execute_tool_batch(pending_tool_calls, last_model_turn):
-                        yield event
+                    async with aclosing(self._execute_tool_batch(pending_tool_calls, last_model_turn)) as owned_batch:
+                        async for event in owned_batch:
+                            yield event
                 except BaseException as e:
                     if isinstance(e, (asyncio.CancelledError, GeneratorExit)) or not isinstance(e, Exception):
                         raise
