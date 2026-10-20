@@ -86,6 +86,7 @@ async def test_completion_returns_files_for_pipeline_or_explicitly_replies(autom
     ctx.delivery.automatic_reply = automatic_reply
     ctx.export_box_files.return_value = [BoxFile(id="file", name="a.txt", type="File", size=1)]
     box = LocalAgentBox(ctx, None)
+    box.prepare = AsyncMock()
     box.binding = ctx.bind_box.return_value
     assert (await box.export_files(["/workspace/a.txt"]))["status"] == "accepted"
     assert box.file_ids == (["file"] if automatic_reply else [])

@@ -217,14 +217,16 @@ class DefaultRunner(Runner):
 
         box = LocalAgentBox(ctx, api)
         try:
-            if box.needed():
+            needs_box = box.needed()
+            if needs_box and ctx.input.attachments:
                 await interrupt_checker.wait_for(box.prepare(), deadline=deadline)
             assembly = await interrupt_checker.wait_for(
                 AgentRunAssembler(api, ctx).assemble(),
                 deadline=deadline,
             )
-            if box.binding is not None:
+            if needs_box:
                 box.install_tool(assembly)
+                assembly.tool_executor.api = box
         except NoAuthorizedModelError:
             yield RunnerResult.run_failed(
                 ctx.run_id,

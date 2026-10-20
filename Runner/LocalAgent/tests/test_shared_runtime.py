@@ -419,10 +419,15 @@ async def test_scoped_box_binding_and_exports(sdk_runtime, denied_a, automatic_r
     results = await asyncio.gather(*(host.run(c, o) for c, o in zip(contexts, ("a", "b"))))
     for owner, output in zip(("a", "b"), results):
         if denied_a and owner == "a":
-            assert output[-1].type == "run.failed"
+            assert_success(output, owner)
+            assert not output[-2].data.get("file_ids")
             assert not any(
-                action in {"box_acquire", "box_bind", "box_export", "model"} and host.owners[d["run_id"]] == owner
+                action in {"box_acquire", "box_bind", "box_export"} and host.owners[d["run_id"]] == owner
                 for action, d in host.calls
+            )
+            assert any(
+                result.type == "tool.call.completed" and "fixture denial" in json.dumps(result.data)
+                for result in output
             )
         else:
             assert_success(output, owner)
@@ -432,5 +437,33 @@ async def test_scoped_box_binding_and_exports(sdk_runtime, denied_a, automatic_r
                 is not automatic_reply
             )
             model = next(d for action, d in host.calls if action == "model" and host.owners[d["run_id"]] == owner)
-            assert f"/out/{owner}/" in json.dumps(model["messages"])
+            assert f"/out/{owner}/" not in json.dumps(model["messages"])
             assert f"/out/{'b' if owner == 'a' else 'a'}/" not in json.dumps(model["messages"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("streaming", [False, True])
+async def test_text_only_with_sandbox_tools_does_not_acquire_box(sdk_runtime, streaming):
+    from langbot_plugin.api.entities.builtin.runner.resources import ToolResource
+
+    host = sdk_runtime
+
+    @host.host.action(P.GET_BOX_STATUS)
+    async def status(data):
+        host.record("unexpected_box_status", data)
+        raise AssertionError("text-only run must not contact Box")
+
+    @host.host.action(P.GET_TOOL_DETAIL)
+    async def detail(data):
+        host.record("tool_detail", data)
+        return ActionResponse.success(
+            {"tool": {"name": "exec", "description": "fixture", "parameters": {"type": "object"}}}
+        )
+
+    ctx = context("a", streaming=streaming)
+    ctx.context.available_apis.box = True
+    ctx.resources.tools = [ToolResource(tool_name="exec", operations=["detail", "call"])]
+    output = await host.run(ctx, "a")
+    assert_success(output, "a")
+    assert not any("box" in action for action, _ in host.calls)
+    assert not output[-2].data.get("file_ids")
