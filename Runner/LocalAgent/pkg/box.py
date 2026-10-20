@@ -175,6 +175,4 @@ class LocalAgentBox:
                 attachment.path, attachment.size = item.path, item.size
         if files:
             self.ctx.input.contents = [c for c in self.ctx.input.contents if c.type not in {"file_url", "file_base64"}]
-        self.ctx.input.contents.append(
-            ContentElement.from_text(self._instructions())
-        )
+        self.ctx.input.contents.append(ContentElement.from_text(self._instructions()))
