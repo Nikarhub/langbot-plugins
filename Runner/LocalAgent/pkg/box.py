@@ -142,9 +142,17 @@ class LocalAgentBox:
         if tool_name in SANDBOX_TOOLS:
             await self.prepare()
         result = await self.api.call_tool(tool_name=tool_name, parameters=parameters)
-        if tool_name in SANDBOX_TOOLS and isinstance(result, dict):
-            result = {**result, "sandbox_outbox": self.binding.outbox}
+        if tool_name in SANDBOX_TOOLS:
+            payload = result if isinstance(result, dict) else {"result": result}
+            result = {**payload, "sandbox_instructions": self._instructions(), "sandbox_outbox": self.binding.outbox}
         return result
+
+    def _instructions(self):
+        return (
+            f"Prefer storing generated artifacts in {self.binding.outbox}/; create it if needed. "
+            "To deliver files, explicitly call export_box_files with their absolute paths and confirm success before finishing. "
+            "Writing a file does not deliver it. Fix reported errors and retry the tool; no automatic export occurs."
+        )
 
     async def _prepare(self):
         if "paths" not in signature(RunnerContext.export_box_files).parameters:
@@ -168,9 +176,5 @@ class LocalAgentBox:
         if files:
             self.ctx.input.contents = [c for c in self.ctx.input.contents if c.type not in {"file_url", "file_base64"}]
         self.ctx.input.contents.append(
-            ContentElement.from_text(
-                f"Prefer storing generated artifacts in {self.binding.outbox}/; create it if needed. "
-                "To deliver files, explicitly call export_box_files with their absolute paths and confirm success before finishing. "
-                "Writing a file does not deliver it. Fix reported errors and retry the tool; no automatic export occurs."
-            )
+            ContentElement.from_text(self._instructions())
         )

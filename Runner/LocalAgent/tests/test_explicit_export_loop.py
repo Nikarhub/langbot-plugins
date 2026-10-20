@@ -119,6 +119,31 @@ async def test_no_tool_call_means_no_implicit_export():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("result", [{"output": "done"}, "done"])
+async def test_lazy_sandbox_instructions_reach_followup_model(streaming, result):
+    loop, api, box, ctx = setup_loop(streaming)
+    turn = export_turn("sandbox")
+    turn.tool_calls[0].function.name = "exec"
+    turn.tool_calls[0].function.arguments = '{"command":"echo done"}'
+    api.turns = iter([turn, Message(role="assistant", content="Done.")])
+    box.api.call_tool.return_value = result
+    loop.tool_executor.api = box
+    loop.tool_executor.allowed_tools.add("exec")
+    assert ctx.input.contents == []
+    events = [event async for event in loop.run()]
+    assert events[-1].type == AgentLoopEventType.AGENT_END
+    assert "/out/run-1" not in str(api.histories[0])
+    followup = api.histories[1][-1]
+    assert followup.role == "tool" and followup.tool_call_id == "sandbox"
+    assert "/out/run-1/" in followup.content
+    assert "explicitly call export_box_files" in followup.content
+    assert "no automatic export occurs" in followup.content
+    box.api.acquire_box.assert_awaited_once()
+    ctx.export_box_files.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_platform_failure_stops_loop_without_regeneration_or_completion():
     loop, api, box, ctx = setup_loop(False, automatic=False)
     ctx.export_box_files.side_effect = None
