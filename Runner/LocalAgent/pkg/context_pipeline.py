@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -405,6 +406,7 @@ class HostContextTokenCounter:
         self.model_id = model_id
         self.tools = tools or []
         self.reasoning_level = reasoning_level
+        self._counts: dict[tuple[str, str, bytes], int] = {}
 
     async def count(self, messages: list[Message]) -> int:
         count_tokens = getattr(self.api, "count_tokens", None)
@@ -412,6 +414,10 @@ class HostContextTokenCounter:
             raise ContextTokenCounterRequiredError(
                 "Host count_tokens API is required for local-agent context budgeting"
             )
+        payload = json.dumps([message.model_dump(mode="json") for message in messages], sort_keys=True)
+        key = (self.model_id, self.reasoning_level, hashlib.sha256(payload.encode()).digest())
+        if key in self._counts:
+            return self._counts[key]
         tokens = await count_tokens(
             llm_model_uuid=self.model_id,
             messages=messages,
@@ -420,6 +426,10 @@ class HostContextTokenCounter:
         )
         if isinstance(tokens, bool) or not isinstance(tokens, int) or tokens < 0:
             raise ContextTokenCounterRequiredError(f"Host count_tokens returned invalid token count: {tokens!r}")
+        # This counter belongs to one run; retain only a bounded set of input digests.
+        if len(self._counts) >= 32:
+            self._counts.pop(next(iter(self._counts)))
+        self._counts[key] = tokens
         return tokens
 
 
