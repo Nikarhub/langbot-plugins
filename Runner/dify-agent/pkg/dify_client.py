@@ -221,6 +221,12 @@ class AsyncDifyClient:
                         code="dify.http_error",
                     )
 
+                content_type = response.headers.get("content-type", "").lower()
+                if content_type.split(";", 1)[0].strip() == "text/event-stream":
+                    async for event in _iter_sse_json(response):
+                        yield event
+                    return
+
                 async with client.stream(
                     "GET",
                     f"/workflow/{workflow_run_id}/events",
