@@ -5,6 +5,7 @@ metadata:
   name: HelloPlugin
   repository: https://github.com/langbot-app/langbot-plugins/tree/main/misc/HelloPlugin
   version: 0.1.4
+  icon: assets/icon.svg
   description:
     en_US: This plugin is an experimental plugin that provides demos on `EventListener`,
       `Tool` and `Command` components.
