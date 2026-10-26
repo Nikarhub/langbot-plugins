@@ -411,3 +411,31 @@ async def test_real_sdk_cancels_while_waiting_for_stream(sdk_runtime):
     assert len(results) == 1
     assert results[0].type == "run.failed"
     assert results[0].data["code"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_real_sdk_cancels_while_waiting_for_tool(sdk_runtime):
+    sdk_runtime.use_tool = True
+    tool_started = asyncio.Event()
+
+    @sdk_runtime.host.action(PluginToRuntimeAction.CALL_TOOL)
+    async def stalled_tool(data):
+        sdk_runtime.record("call_tool", data)
+        tool_started.set()
+        await asyncio.Event().wait()
+
+    context = run_context(tools=True)
+    context.context.available_apis.run_get = True
+    task = asyncio.create_task(sdk_runtime.run(context))
+    try:
+        await asyncio.wait_for(tool_started.wait(), timeout=3)
+        sdk_runtime.cancelled = True
+        results = await asyncio.wait_for(task, timeout=1.5)
+    finally:
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    assert results[-1].type == "run.failed"
+    assert results[-1].data["code"] == "cancelled"
+    assert sum(result.type in {"run.failed", "run.completed"} for result in results) == 1
