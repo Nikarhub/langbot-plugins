@@ -105,6 +105,24 @@ def test_platform_action_tools_add_run_scoped_safety_guidance() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("enabled, entitled", [(False, True), (True, False), (False, False)])
+async def test_sandbox_tools_require_both_config_and_box_capability(enabled, entitled):
+    tools = [ToolResource(tool_name=name) for name in ["exec", "read", "write", "edit", "glob", "grep", "echo"]]
+    api = FakeRunnerAPIProxy(models=[ModelResource(model_id="primary")], tools=tools)
+    ctx = make_context(
+        config={"model": {"primary": "primary"}, "box-enabled": enabled},
+        resources=AgentResources(models=api.get_allowed_models(), tools=tools),
+    )
+    ctx.context.available_apis.box = entitled
+
+    assembly = await AgentRunAssembler(api, ctx).assemble()
+
+    assert [tool.name for tool in assembly.tools] == ["echo"]
+    assert assembly.tool_executor.allowed_tools == {"echo"}
+    api.get_tool_detail.assert_awaited_once_with("echo")
+
+
+@pytest.mark.asyncio
 async def test_build_llm_tools_uses_prefilled_schema_without_fetch() -> None:
     """Host-prefilled ToolResource.parameters avoid a get_tool_detail round-trip."""
     from unittest.mock import Mock

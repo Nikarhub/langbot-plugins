@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11, <4.0"
 
 [[package]]
@@ -456,7 +456,7 @@ wheels = [
 
 [[package]]
 name = "langbot-local-agent"
-version = "0.2.0"
+version = "0.2.2"
 source = { editable = "." }
 dependencies = [
     { name = "langbot-plugin" },
@@ -472,7 +472,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "langbot-plugin", specifier = ">=0.7.4,<0.8" },
+    { name = "langbot-plugin", specifier = "==0.7.18" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
@@ -482,7 +482,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "langbot-plugin"
-version = "0.7.4"
+version = "0.7.18"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiofiles" },
@@ -503,9 +503,9 @@ dependencies = [
     { name = "watchdog" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/92/71/b4bed3cfe28ba7a24e1108465429d833c1f702e33fdbc0d31d7bea3587d9/langbot_plugin-0.7.4.tar.gz", hash = "sha256:af3a0bcb9711fd734af811c0e178d259ae4a0d3e45d25e844661aba3dd574f96", size = 673043, upload-time = "2026-09-28T10:43:41.289Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/36/da/aee1601e50d2c584357356b1abe502f529b66a0b155cab63b3e4cbde0839/langbot_plugin-0.7.18.tar.gz", hash = "sha256:71b8fda2c6836e107341cdf9dbb519ef9ba7b4625d88480058b5d794f6e3e256", size = 725344, upload-time = "2026-10-26T03:52:09.718Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f2/c7/c870377771cbe27e047b19778b5f249b15efef52409358901af94d13e6c0/langbot_plugin-0.7.4-py3-none-any.whl", hash = "sha256:596ecd776c13efa6f6cfe178463dc4a967653238548c9569195cdbb5aa47506e", size = 433419, upload-time = "2026-09-28T10:43:40.073Z" },
+    { url = "https://files.pythonhosted.org/packages/9f/5e/98b4daa0a84ba5cb80374b4b323946f62263ceec3e580b459f261abe29a7/langbot_plugin-0.7.18-py3-none-any.whl", hash = "sha256:897c1f5b291bd36acd9716e951a8cd70601e266d17f88c8b66a21426c9602f01", size = 460608, upload-time = "2026-10-26T03:52:07.673Z" },
 ]
 
 [[package]]

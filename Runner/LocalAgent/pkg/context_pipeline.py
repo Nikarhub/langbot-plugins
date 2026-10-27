@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -405,6 +406,7 @@ class HostContextTokenCounter:
         self.model_id = model_id
         self.tools = tools or []
         self.reasoning_level = reasoning_level
+        self._counts: dict[tuple[str, str, bytes], int] = {}
 
     async def count(self, messages: list[Message]) -> int:
         count_tokens = getattr(self.api, "count_tokens", None)
@@ -412,6 +414,10 @@ class HostContextTokenCounter:
             raise ContextTokenCounterRequiredError(
                 "Host count_tokens API is required for local-agent context budgeting"
             )
+        payload = json.dumps([message.model_dump(mode="json") for message in messages], sort_keys=True)
+        key = (self.model_id, self.reasoning_level, hashlib.sha256(payload.encode()).digest())
+        if key in self._counts:
+            return self._counts[key]
         tokens = await count_tokens(
             llm_model_uuid=self.model_id,
             messages=messages,
@@ -420,6 +426,10 @@ class HostContextTokenCounter:
         )
         if isinstance(tokens, bool) or not isinstance(tokens, int) or tokens < 0:
             raise ContextTokenCounterRequiredError(f"Host count_tokens returned invalid token count: {tokens!r}")
+        # This counter belongs to one run; retain only a bounded set of input digests.
+        if len(self._counts) >= 32:
+            self._counts.pop(next(iter(self._counts)))
+        self._counts[key] = tokens
         return tokens
 
 
@@ -448,6 +458,7 @@ class ContextAssembler:
         history_messages, history_cursors = await self._get_history_messages(checkpoint)
 
         prompt_messages = build_prompt_messages(await self._get_prompt_config())
+        system_instructions = []
         if self.ctx.config.get("date-grounding", True) is not False:
             # Runtime clock, not the event timestamp: replayed events may be old.
             # UTC is explicit so a separate plugin process cannot imply Host/user time.
@@ -459,20 +470,24 @@ class ContextAssembler:
                 "financial results, news, current events, exchange rates, or similar — "
                 "verify with a search tool if one is available rather than answering from memory."
             )
+            system_instructions.append(date_guidance)
+        skills_message = build_skills_system_message(self.ctx)
+        if skills_message is not None:
+            system_instructions.append(skills_message.content)
+        platform_tools_message = build_platform_tools_system_message(self.ctx)
+        if platform_tools_message is not None:
+            system_instructions.append(platform_tools_message.content)
+        if system_instructions:
+            # Strict chat templates only accept a system message at position zero.
+            guidance = "\n\n".join(system_instructions)
             if prompt_messages and prompt_messages[0].role == "system":
                 head = prompt_messages[0]
                 if isinstance(head.content, str):
-                    head.content += "\n\n" + date_guidance
+                    head.content += "\n\n" + guidance
                 else:
-                    head.content.append(ContentElement.from_text(date_guidance))
+                    head.content.append(ContentElement.from_text(guidance))
             else:
-                prompt_messages.insert(0, Message(role="system", content=date_guidance))
-        skills_message = build_skills_system_message(self.ctx)
-        if skills_message is not None:
-            prompt_messages = [*prompt_messages, skills_message]
-        platform_tools_message = build_platform_tools_system_message(self.ctx)
-        if platform_tools_message is not None:
-            prompt_messages = [*prompt_messages, platform_tools_message]
+                prompt_messages.insert(0, Message(role="system", content=guidance))
         checkpoint_messages = self._checkpoint_messages(checkpoint)
         checkpoint_cursors = [checkpoint.covers_until for _ in checkpoint_messages] if checkpoint else []
         rag_messages = [rag_message] if rag_message is not None else []

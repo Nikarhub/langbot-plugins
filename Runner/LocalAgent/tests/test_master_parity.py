@@ -241,6 +241,92 @@ async def test_structured_prompt_preserves_content_and_metadata_with_date(host_p
     assert prompt == original
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("date_grounding", [False, True])
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        [],
+        [{"role": "system", "content": "Keep this policy."}],
+        [{"role": "system", "name": "policy", "content": [{"type": "text", "text": "Keep this policy."}]}],
+        [
+            {"role": "user", "content": "Example question"},
+            {"role": "assistant", "content": "Example answer"},
+        ],
+    ],
+    ids=["empty", "text", "structured", "few-shot"],
+)
+async def test_runner_guidance_accepts_strict_system_order_through_tool_loop(prompt, date_grounding, streaming):
+    from langbot_plugin.api.entities.builtin.provider.message import FunctionCall, MessageChunk, ToolCall
+    from langbot_plugin.api.entities.builtin.runner.resources import SkillResource, ToolResource
+
+    original = deepcopy(prompt)
+    models = [ModelResource(model_id="primary")]
+    tools = [ToolResource(tool_name="event_reply", tool_type="platform")]
+    api = FakeRunnerAPIProxy(models=models, tools=tools)
+    api.call_tool.return_value = "Tool finished"
+    requests = []
+
+    async def strict_model(**kwargs):
+        messages = kwargs["messages"]
+        if messages[0].role != "system" or any(m.role == "system" for m in messages[1:]):
+            raise ValueError("System message must be at the beginning")
+        requests.append([m.model_copy(deep=True) for m in messages])
+        if len(requests) == 1:
+            return Message(
+                role="assistant",
+                content="",
+                tool_calls=[
+                    ToolCall(id="call-1", type="function", function=FunctionCall(name="event_reply", arguments="{}"))
+                ],
+            )
+        return Message(role="assistant", content="Done")
+
+    async def strict_stream(**kwargs):
+        message = await strict_model(**kwargs)
+        yield MessageChunk(**message.model_dump(), is_final=True)
+
+    api.invoke_llm.side_effect = strict_model
+    api.invoke_llm_stream = strict_stream
+    ctx = make_context(
+        config={"model": {"primary": "primary"}, "prompt": prompt, "date-grounding": date_grounding},
+        resources=AgentResources(
+            models=models,
+            tools=tools,
+            skills=[SkillResource(skill_name="pdf", description="Work with PDFs")],
+        ),
+        delivery_supports_streaming=streaming,
+    )
+    runner = DefaultRunner()
+    runner.get_run_api = lambda context: api
+
+    results = [result async for result in runner.run(ctx)]
+
+    assert results[-1].type.value == "run.completed"
+    assert len(requests) == 2
+    api.call_tool.assert_awaited_once_with(tool_name="event_reply", parameters={})
+    for messages in requests:
+        system = messages[0]
+        content = system.content if isinstance(system.content, str) else "".join(c.text or "" for c in system.content)
+        assert content.count("<available_skills>") == 1
+        assert "<name>pdf</name>" in content
+        assert "Work with PDFs" in content
+        assert content.count("platform action tools") == 1
+        assert "event_reply" in content
+        assert ("Current date:" in content) is date_grounding
+        if prompt and prompt[0]["role"] == "system":
+            assert content.startswith("Keep this policy.")
+            assert system.name == prompt[0].get("name")
+        else:
+            assert [m.model_dump(exclude_none=True) for m in messages[1 : 1 + len(prompt)]] == prompt
+    assert requests[1][-2].tool_calls[0].id == "call-1"
+    assert requests[1][-1].role == "tool"
+    assert requests[1][-1].tool_call_id == "call-1"
+    assert requests[1][-1].content == "Tool finished"
+    assert prompt == original
+
+
 def test_prompt_preserves_empty_message_and_rejects_malformed_content():
     from pkg.messages import build_prompt_messages
 

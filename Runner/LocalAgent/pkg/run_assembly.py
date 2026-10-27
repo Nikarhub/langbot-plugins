@@ -105,7 +105,7 @@ class AgentRunAssembler:
         from pkg.box import SANDBOX_TOOLS
 
         names = {tool.tool_name for tool in self.api.get_allowed_tools()}
-        if not self.ctx.config.get("box-enabled", True):
+        if not self.ctx.config.get("box-enabled", True) or not self.ctx.context.available_apis.box:
             names -= SANDBOX_TOOLS
         return names
 

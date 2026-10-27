@@ -70,14 +70,15 @@ class RunInterruptChecker:
         self.api = api
         self.ctx = ctx
         self.interval_seconds = max(0.1, interval_seconds)
-        self._next_check_at = 0.0
+        self._check_generation = 0
         self._cancelled = asyncio.Event()
         self._check_lock = asyncio.Lock()
+        self._watch_lock = asyncio.Lock()
         self._watcher: asyncio.Task | None = None
         available_apis = getattr(getattr(ctx, "context", None), "available_apis", None)
         self.available = bool(getattr(available_apis, "run_get", False)) and callable(getattr(api, "run_get", None))
 
-    async def is_cancelled(self, *, force: bool = False) -> bool:
+    async def is_cancelled(self, *, force: bool = False, coalesce: bool = False) -> bool:
         if self._cancelled.is_set():
             return True
         if not self.available:
@@ -85,28 +86,46 @@ class RunInterruptChecker:
         # Hot-path checks never wait for a ledger RPC already in flight.
         if not force:
             return self._cancelled.is_set()
+        if coalesce:
+            async with self._watch_lock:
+                if self._check_lock.locked():
+                    # The watcher can await a fresh boundary without issuing another RPC.
+                    generation = self._check_generation
+                    async with self._check_lock:
+                        if generation != self._check_generation:
+                            return self._cancelled.is_set()
+                if self._cancelled.is_set():
+                    return True
+                return await self._poll()
         async with self._check_lock:
-            request = asyncio.ensure_future(self.api.run_get(self.ctx.run_id))
-            try:
-                # wait_for can swallow cancellation when the RPC completes at
-                # the same instant on Python 3.11. Keep task ownership explicit.
-                done, _ = await asyncio.wait({request}, timeout=1.0)
-                if not done:
-                    return self._cancelled.is_set()
-                run = request.result()
-                if _run_cancel_requested(run):
-                    self._cancelled.set()
-            except Exception:
-                logger.debug("Failed to check AgentRun cancellation state", exc_info=True)
-            finally:
-                if not request.done():
-                    request.cancel()
-                await asyncio.gather(request, return_exceptions=True)
+            if self._cancelled.is_set():
+                return True
+            # A fresh boundary must not wait for an older background snapshot.
+            return await self._poll()
+
+    async def _poll(self) -> bool:
+        request = asyncio.ensure_future(self.api.run_get(self.ctx.run_id))
+        try:
+            # wait_for can swallow cancellation when the RPC completes at
+            # the same instant on Python 3.11. Keep task ownership explicit.
+            done, _ = await asyncio.wait({request}, timeout=1.0)
+            if not done:
+                return self._cancelled.is_set()
+            run = request.result()
+            self._check_generation += 1
+            if _run_cancel_requested(run):
+                self._cancelled.set()
+        except Exception:
+            logger.debug("Failed to check AgentRun cancellation state", exc_info=True)
+        finally:
+            if not request.done():
+                request.cancel()
+            await asyncio.gather(request, return_exceptions=True)
         return self._cancelled.is_set()
 
     async def _watch(self):
         while not self._cancelled.is_set():
-            await self.is_cancelled(force=True)
+            await self.is_cancelled(force=True, coalesce=True)
             await asyncio.sleep(self.interval_seconds)
 
     async def __aenter__(self):
@@ -217,12 +236,16 @@ class DefaultRunner(Runner):
 
         box = LocalAgentBox(ctx, api)
         try:
-            if box.needed():
+            needs_box = box.needed()
+            if needs_box and ctx.input.attachments:
                 await interrupt_checker.wait_for(box.prepare(), deadline=deadline)
             assembly = await interrupt_checker.wait_for(
                 AgentRunAssembler(api, ctx).assemble(),
                 deadline=deadline,
             )
+            if needs_box:
+                box.install_tool(assembly)
+                assembly.tool_executor.api = box
         except NoAuthorizedModelError:
             yield RunnerResult.run_failed(
                 ctx.run_id,
@@ -267,7 +290,7 @@ class DefaultRunner(Runner):
             async with aclosing(_iterate_with_run_controls(results, interrupt_checker, deadline)) as owned_stream:
                 async for result in owned_stream:
                     if box.binding is not None and getattr(result.type, "value", result.type) == "message.completed":
-                        result.data["file_ids"] = await interrupt_checker.wait_for(box.finish(), deadline=deadline)
+                        result.data["file_ids"] = box.file_ids
                     yield result
                     if _is_terminal_result(result):
                         return
@@ -282,6 +305,7 @@ class DefaultRunner(Runner):
                 error=str(e) or "Agent run failed",
                 code="runner.error",
                 retryable=False,
+                usage=usage_tracker.current(),
             )
 
     async def _run_runner_loop(
