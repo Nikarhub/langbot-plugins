@@ -1,5 +1,12 @@
 # LangBot Plugins
 
+> Official plugin development has moved to [LangBot/plugins](https://github.com/langbot-app/LangBot/tree/master/plugins).
+> Use the [source catalog](https://github.com/langbot-app/LangBot/blob/master/plugins/catalog.json),
+> [independent release guide](https://github.com/langbot-app/LangBot/blob/master/plugins/RELEASING.md),
+> and [LangBot issues](https://github.com/langbot-app/LangBot/issues) for new work.
+> Plugin IDs, independent installation and Marketplace publication are unchanged.
+> This repository preserves the pre-migration sources and history; the catalog below is historical.
+
 Official and example plugins for [LangBot](https://github.com/langbot-app/LangBot).
 
 Each plugin is an independent package with its own `manifest.yaml`, dependencies, and README. Install plugins from [LangBot Space](https://space.langbot.app/market?type=plugin), or run `lbp build` inside a plugin directory.
